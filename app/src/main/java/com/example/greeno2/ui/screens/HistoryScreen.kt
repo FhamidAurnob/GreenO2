@@ -150,7 +150,7 @@ private fun TripRow(trip: Trip) {
                     Text("emitted", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
                 } else {
                     Text(fmtKg(trip.savedKg), style = MaterialTheme.typography.titleMedium, color = scheme.primary)
-                    Text("+${trip.credits} credits", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                    Text("+${trip.credits} points", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
                 }
             }
         }

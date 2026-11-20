@@ -1,6 +1,15 @@
 package com.example.greeno2.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
+import com.example.greeno2.ui.theme.Serif
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -118,7 +127,7 @@ fun GradientCard(
     Box(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(brush),
     ) {
         // Soft decorative circles give the flat gradient some depth.
@@ -216,7 +225,7 @@ fun EmojiBadge(
     Box(
         modifier
             .size(48.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(container),
         contentAlignment = Alignment.Center,
     ) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
@@ -229,8 +238,9 @@ fun SectionCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) { Column(Modifier.padding(18.dp), content = content) }
 }
@@ -247,13 +257,112 @@ fun GradientButton(
     Box(
         modifier
             .fillMaxWidth()
-            .height(58.dp)
-            .clip(RoundedCornerShape(50))
+            .height(54.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(if (enabled) brush else Brush.linearGradient(listOf(Color.Gray, Color.Gray)))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(text, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Secondary action: white with an olive outline. */
+@Composable
+fun OutlineButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+/** Serif "GreenO2" wordmark with a small leaf, as on the case study's splash and login screens. */
+@Composable
+fun Wordmark(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    size: TextUnit = 40.sp,
+    tagline: String? = "Your guide to greener journeys",
+) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text("GreenO", color = color, fontFamily = Serif, fontSize = size, fontWeight = FontWeight.Medium)
+            Text(
+                "2",
+                color = color,
+                fontFamily = Serif,
+                fontSize = size * 0.55f,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = (size.value * 0.55f).dp),
+            )
+            Text("🌿", fontSize = size * 0.42f, modifier = Modifier.padding(start = 2.dp))
+        }
+        if (tagline != null) {
+            Text(
+                tagline,
+                color = color.copy(alpha = 0.8f),
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** Underlined text tabs, like "Eco-stays  Restaurants  Activities" in the rewards design. */
+@Composable
+fun TextTabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        tabs.forEachIndexed { i, label ->
+            val active = i == selected
+            Column(
+                Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onSelect(i) }
+                    .padding(vertical = 6.dp, horizontal = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier
+                        .height(2.dp)
+                        .width(if (active) 28.dp else 0.dp)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
+    }
+}
+
+/** Heading with a thin rule either side: "—— Certificate ——". */
+@Composable
+fun RuledHeading(text: String, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outline))
+        Text(
+            text,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outline))
     }
 }
 
@@ -370,4 +479,12 @@ fun BarChart(
             }
         }
     }
+}
+
+/** Opens the Android share sheet (social sharing of achievements, Invite & Earn). */
+fun shareText(context: android.content.Context, text: String, title: String = "Share via") {
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(android.content.Intent.EXTRA_TEXT, text)
+    context.startActivity(android.content.Intent.createChooser(send, title))
 }

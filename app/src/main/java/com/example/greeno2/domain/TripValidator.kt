@@ -37,10 +37,10 @@ object TripValidator {
         maxSegmentSpeedKmh: Double,
     ): Verdict {
         if (distanceMeters < MIN_DISTANCE_M) {
-            return Verdict(false, false, "Trip too short to earn credits (under ${MIN_DISTANCE_M.toInt()} m)")
+            return Verdict(false, false, "Trip too short to earn Green Points (under ${MIN_DISTANCE_M.toInt()} m)")
         }
         if (durationMs < MIN_DURATION_MS) {
-            return Verdict(false, false, "Trip too short to earn credits (under 1 minute)")
+            return Verdict(false, false, "Trip too short to earn Green Points (under 1 minute)")
         }
         val avg = averageSpeedKmh(distanceMeters, durationMs)
         if (avg > mode.maxAvgSpeedKmh) {

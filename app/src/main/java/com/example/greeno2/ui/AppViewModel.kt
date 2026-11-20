@@ -7,10 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.greeno2.appContainer
 import com.example.greeno2.data.LeaderboardEntry
 import com.example.greeno2.data.MartItem
+import com.example.greeno2.data.QuizState
 import com.example.greeno2.data.Redemption
 import com.example.greeno2.data.Trip
 import com.example.greeno2.data.User
 import com.example.greeno2.data.UserStats
+import com.example.greeno2.domain.ChallengeProgress
+import com.example.greeno2.domain.Challenges
+import com.example.greeno2.domain.QuizResult
+import com.example.greeno2.domain.SustainabilityQuiz
 import com.example.greeno2.tracking.TrackingStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +32,12 @@ data class UiState(
     val trips: List<Trip> = emptyList(),
     val leaderboard: List<LeaderboardEntry> = emptyList(),
     val redemptions: List<Redemption> = emptyList(),
+    val challenges: List<ChallengeProgress> = emptyList(),
+    val joinedChallenges: Set<String> = emptySet(),
+    val claimedChallenges: Set<String> = emptySet(),
+    val rewardsGuideSeen: Boolean = true,
+    /** Set while the onboarding quiz screen is open (first run or "Retake quiz"). */
+    val showQuiz: Boolean = false,
     val message: String? = null,
 )
 
@@ -46,7 +57,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val user = session.userId?.let { repository.getUser(it) }
             if (user == null) session.userId = null
-            _ui.update { it.copy(loading = false, user = user) }
+            // Keep the branded splash visible briefly so the launch feels intentional.
+            kotlinx.coroutines.delay(700)
+            _ui.update { it.copy(loading = false, user = user, showQuiz = user?.quizState == QuizState.NOT_SEEN) }
             reload()
         }
         // Any write (trip saved by the service, redemption, ...) triggers a refresh.
@@ -54,12 +67,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun reload() {
-        val user = _ui.value.user ?: return
+        val current = _ui.value.user ?: return
+        val user = repository.getUser(current.id) ?: current
         val stats = repository.stats(user.id)
         val trips = repository.trips(user.id)
         val board = repository.leaderboard()
         val redemptions = repository.redemptions(user.id)
-        _ui.update { it.copy(stats = stats, trips = trips, leaderboard = board, redemptions = redemptions) }
+        val period = Challenges.periodKey()
+        val joined = repository.joinedChallenges(user.id, period)
+        val claimed = repository.claimedChallenges(user.id, period)
+        _ui.update {
+            // Ignore results if the user logged out (or switched account) while we were loading.
+            if (it.user?.id != user.id) return@update it
+            it.copy(
+                user = user,
+                stats = stats,
+                trips = trips,
+                leaderboard = board,
+                redemptions = redemptions,
+                challenges = Challenges.progress(trips),
+                joinedChallenges = joined,
+                claimedChallenges = claimed,
+                rewardsGuideSeen = session.rewardsGuideSeen(user.id),
+            )
+        }
     }
 
     fun login(email: String, password: String) {
@@ -90,7 +121,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             block().fold(
                 onSuccess = { user ->
                     session.userId = user.id
-                    _ui.update { it.copy(authBusy = false, user = user) }
+                    _ui.update {
+                        it.copy(authBusy = false, user = user, showQuiz = user.quizState == QuizState.NOT_SEEN)
+                    }
                     reload()
                 },
                 onFailure = { e -> _ui.update { it.copy(authBusy = false, authError = e.message) } },
@@ -126,6 +159,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissLastTrip() = TrackingStore.dismissLastCompleted()
+
+    // ---------- Onboarding quiz ----------
+
+    fun openQuiz() = _ui.update { it.copy(showQuiz = true) }
+
+    fun skipQuiz() {
+        val user = _ui.value.user ?: return
+        _ui.update { it.copy(showQuiz = false) }
+        viewModelScope.launch { repository.skipQuiz(user.id) }
+    }
+
+    /** Saves the result; the quiz screen shows its own result page and then calls [closeQuiz]. */
+    fun submitQuiz(result: QuizResult, onSaved: (awarded: Int) -> Unit) {
+        val user = _ui.value.user ?: return
+        viewModelScope.launch {
+            val awarded = repository.completeQuiz(user.id, result.score, result.preferredMode, SustainabilityQuiz.WELCOME_BONUS)
+            onSaved(awarded)
+        }
+    }
+
+    fun closeQuiz() = _ui.update { it.copy(showQuiz = false) }
+
+    // ---------- Challenges & rewards ----------
+
+    fun joinChallenge(id: String) {
+        val user = _ui.value.user ?: return
+        viewModelScope.launch {
+            repository.joinChallenge(user.id, id, Challenges.periodKey())
+            showMessage("Challenge joined. Good luck! 🌿")
+        }
+    }
+
+    fun claimChallenge(id: String) {
+        val user = _ui.value.user ?: return
+        val progress = _ui.value.challenges.firstOrNull { it.challenge.id == id } ?: return
+        if (!progress.complete || id !in _ui.value.joinedChallenges) return
+        viewModelScope.launch {
+            val ok = repository.claimChallenge(user.id, id, Challenges.periodKey(), progress.challenge.points)
+            showMessage(if (ok) "+${progress.challenge.points} Green Points earned! 🎉" else "Already claimed this week")
+        }
+    }
+
+    fun dismissRewardsGuide() {
+        val user = _ui.value.user ?: return
+        session.setRewardsGuideSeen(user.id)
+        _ui.update { it.copy(rewardsGuideSeen = true) }
+    }
 
     fun showMessage(text: String) = _ui.update { it.copy(message = text) }
     fun clearMessage() = _ui.update { it.copy(message = null) }

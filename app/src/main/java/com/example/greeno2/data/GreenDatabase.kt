@@ -28,7 +28,10 @@ class GreenDatabase(context: Context) :
                 password_hash TEXT NOT NULL,
                 password_salt TEXT NOT NULL,
                 is_demo INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                quiz_state INTEGER NOT NULL DEFAULT 0,
+                eco_score INTEGER NOT NULL DEFAULT 0,
+                preferred_mode TEXT
             )
             """.trimIndent()
         )
@@ -63,15 +66,46 @@ class GreenDatabase(context: Context) :
             )
             """.trimIndent()
         )
+        createV2Tables(db)
         seedDemoCommunity(db)
     }
 
+    /** Migrations keep existing users, trips and vouchers. Never drop tables here. */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // No migrations yet (v1). Add ALTER TABLE steps here when the schema changes.
-        db.execSQL("DROP TABLE IF EXISTS redemptions")
-        db.execSQL("DROP TABLE IF EXISTS trips")
-        db.execSQL("DROP TABLE IF EXISTS users")
-        onCreate(db)
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE users ADD COLUMN quiz_state INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE users ADD COLUMN eco_score INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE users ADD COLUMN preferred_mode TEXT")
+            createV2Tables(db)
+        }
+    }
+
+    /** v2: bonus Green Points (quiz, challenges) and weekly challenge sign-ups. */
+    private fun createV2Tables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS bonuses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                ref TEXT NOT NULL,
+                points INTEGER NOT NULL,
+                time INTEGER NOT NULL,
+                UNIQUE(user_id, kind, ref)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS challenge_joins (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                challenge_id TEXT NOT NULL,
+                period TEXT NOT NULL,
+                joined_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, challenge_id, period)
+            )
+            """.trimIndent()
+        )
     }
 
     /**
@@ -90,7 +124,7 @@ class GreenDatabase(context: Context) :
         demo.forEachIndexed { i, (name, trips) ->
             val userId = db.insert("users", null, ContentValues().apply {
                 put("name", name)
-                put("email", "demo${i + 1}@greenmiles.demo")
+                put("email", "demo${i + 1}@greeno2.demo")
                 put("password_hash", UUID.randomUUID().toString())
                 put("password_salt", UUID.randomUUID().toString())
                 put("is_demo", 1)
@@ -118,6 +152,6 @@ class GreenDatabase(context: Context) :
 
     companion object {
         const val DB_NAME = "green_miles.db"
-        const val DB_VERSION = 1
+        const val DB_VERSION = 2
     }
 }

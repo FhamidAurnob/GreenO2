@@ -3,6 +3,7 @@ package com.example.greeno2.data
 import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite.SQLiteConstraintException
+import android.database.sqlite.SQLiteDatabase
 import com.example.greeno2.domain.CarbonCalculator
 import com.example.greeno2.domain.PasswordHasher
 import com.example.greeno2.domain.TripValidator
@@ -48,24 +49,87 @@ class GreenRepository(private val database: GreenDatabase) {
 
     suspend fun login(email: String, password: String): Result<User> = withContext(Dispatchers.IO) {
         database.readableDatabase.rawQuery(
-            "SELECT id, name, email, password_hash, password_salt, created_at FROM users WHERE email = ? AND is_demo = 0",
+            "SELECT * FROM users WHERE email = ? AND is_demo = 0",
             arrayOf(email.trim().lowercase()),
         ).use { c ->
             if (!c.moveToFirst()) return@withContext Result.failure(IllegalArgumentException("Incorrect email or password"))
             val ok = PasswordHasher.verify(password, c.str("password_hash"), c.str("password_salt"))
             if (!ok) return@withContext Result.failure(IllegalArgumentException("Incorrect email or password"))
-            Result.success(User(c.long("id"), c.str("name"), c.str("email"), c.long("created_at")))
+            Result.success(c.toUser())
         }
     }
 
     suspend fun getUser(id: Long): User? = withContext(Dispatchers.IO) {
         database.readableDatabase.rawQuery(
-            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            "SELECT * FROM users WHERE id = ?",
             arrayOf(id.toString()),
-        ).use { c ->
-            if (c.moveToFirst()) User(c.long("id"), c.str("name"), c.str("email"), c.long("created_at")) else null
-        }
+        ).use { c -> if (c.moveToFirst()) c.toUser() else null }
     }
+
+    // ---------- Onboarding quiz ----------
+
+    /** Saves quiz results and awards the one-time welcome bonus. Returns the points awarded. */
+    suspend fun completeQuiz(userId: Long, score: Int, preferredMode: TransportMode?, bonus: Int): Int =
+        withContext(Dispatchers.IO) {
+            database.writableDatabase.update(
+                "users",
+                ContentValues().apply {
+                    put("quiz_state", QuizState.COMPLETED.ordinal)
+                    put("eco_score", score)
+                    if (preferredMode != null) put("preferred_mode", preferredMode.name) else putNull("preferred_mode")
+                },
+                "id = ?", arrayOf(userId.toString()),
+            )
+            val awarded = if (addBonus(userId, "quiz", "welcome", bonus)) bonus else 0
+            notifyChanged()
+            awarded
+        }
+
+    suspend fun skipQuiz(userId: Long) = withContext(Dispatchers.IO) {
+        database.writableDatabase.update(
+            "users", ContentValues().apply { put("quiz_state", QuizState.SKIPPED.ordinal) },
+            "id = ? AND quiz_state = ?", arrayOf(userId.toString(), QuizState.NOT_SEEN.ordinal.toString()),
+        )
+        notifyChanged()
+    }
+
+    // ---------- Challenges ----------
+
+    suspend fun joinChallenge(userId: Long, challengeId: String, period: String) = withContext(Dispatchers.IO) {
+        database.writableDatabase.insertWithOnConflict(
+            "challenge_joins", null,
+            ContentValues().apply {
+                put("user_id", userId)
+                put("challenge_id", challengeId)
+                put("period", period)
+                put("joined_at", System.currentTimeMillis())
+            },
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+        notifyChanged()
+    }
+
+    suspend fun joinedChallenges(userId: Long, period: String): Set<String> = withContext(Dispatchers.IO) {
+        database.readableDatabase.rawQuery(
+            "SELECT challenge_id FROM challenge_joins WHERE user_id = ? AND period = ?",
+            arrayOf(userId.toString(), period),
+        ).use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
+    }
+
+    suspend fun claimedChallenges(userId: Long, period: String): Set<String> = withContext(Dispatchers.IO) {
+        database.readableDatabase.rawQuery(
+            "SELECT ref FROM bonuses WHERE user_id = ? AND kind = 'challenge' AND ref LIKE ?",
+            arrayOf(userId.toString(), "%@$period"),
+        ).use { c -> buildSet { while (c.moveToNext()) add(c.getString(0).substringBefore('@')) } }
+    }
+
+    /** Awards a completed challenge's points once per week. Returns false if already claimed. */
+    suspend fun claimChallenge(userId: Long, challengeId: String, period: String, points: Int): Boolean =
+        withContext(Dispatchers.IO) {
+            val ok = addBonus(userId, "challenge", "$challengeId@$period", points)
+            notifyChanged()
+            ok
+        }
 
     suspend fun updateName(userId: Long, name: String) = withContext(Dispatchers.IO) {
         database.writableDatabase.update(
@@ -101,7 +165,7 @@ class GreenRepository(private val database: GreenDatabase) {
             val remaining = (DAILY_CREDIT_CAP - earnedToday).coerceAtLeast(0)
             if (credits > remaining) {
                 credits = remaining
-                note = "Daily limit of $DAILY_CREDIT_CAP credits reached"
+                note = "Daily limit of $DAILY_CREDIT_CAP Green Points reached"
             }
         }
 
@@ -168,7 +232,12 @@ class GreenRepository(private val database: GreenDatabase) {
                 creditsEarned = c.int("credits"),
             )
         }
-        base.copy(creditsSpent = creditsSpent(userId))
+        val bonus = bonusPoints(userId)
+        base.copy(
+            creditsEarned = base.creditsEarned + bonus,
+            creditsSpent = creditsSpent(userId),
+            bonusPoints = bonus,
+        )
     }
 
     // ---------- Community ----------
@@ -211,11 +280,11 @@ class GreenRepository(private val database: GreenDatabase) {
         val db = database.writableDatabase
         db.beginTransaction()
         try {
-            val earned = creditsEarnedSince(userId, 0L)
+            val earned = creditsEarnedSince(userId, 0L) + bonusPoints(userId)
             val balance = earned - creditsSpent(userId)
             if (balance < item.cost) {
                 return@withContext Result.failure(
-                    IllegalStateException("You need ${item.cost - balance} more credits for this reward")
+                    IllegalStateException("You need ${item.cost - balance} more Green Points for this reward")
                 )
             }
             val code = voucherCode()
@@ -266,6 +335,29 @@ class GreenRepository(private val database: GreenDatabase) {
             arrayOf(userId.toString(), since.toString()),
         ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
 
+    private fun bonusPoints(userId: Long): Int =
+        database.readableDatabase.rawQuery(
+            "SELECT COALESCE(SUM(points), 0) FROM bonuses WHERE user_id = ?",
+            arrayOf(userId.toString()),
+        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+
+    /** Inserts a bonus unless the same (kind, ref) was already awarded. Returns true if added. */
+    private fun addBonus(userId: Long, kind: String, ref: String, points: Int): Boolean {
+        if (points <= 0) return false
+        val id = database.writableDatabase.insertWithOnConflict(
+            "bonuses", null,
+            ContentValues().apply {
+                put("user_id", userId)
+                put("kind", kind)
+                put("ref", ref)
+                put("points", points)
+                put("time", System.currentTimeMillis())
+            },
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+        return id != -1L
+    }
+
     private fun creditsSpent(userId: Long): Int =
         database.readableDatabase.rawQuery(
             "SELECT COALESCE(SUM(cost), 0) FROM redemptions WHERE user_id = ?",
@@ -283,10 +375,20 @@ class GreenRepository(private val database: GreenDatabase) {
     }
 
     companion object {
-        /** Caps how many credits one account can earn per calendar day. */
+        /** Caps how many Green Points one account can earn from trips per calendar day. */
         const val DAILY_CREDIT_CAP = 300
     }
 }
+
+private fun Cursor.toUser() = User(
+    id = long("id"),
+    name = str("name"),
+    email = str("email"),
+    createdAt = long("created_at"),
+    quizState = QuizState.of(int("quiz_state")),
+    ecoScore = int("eco_score"),
+    preferredMode = strOrNull("preferred_mode")?.let { TransportMode.fromName(it) },
+)
 
 private fun Cursor.long(col: String) = getLong(getColumnIndexOrThrow(col))
 private fun Cursor.int(col: String) = getInt(getColumnIndexOrThrow(col))

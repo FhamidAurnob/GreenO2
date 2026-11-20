@@ -56,7 +56,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import com.example.greeno2.data.QuizState
 import com.example.greeno2.data.TransportMode
+import com.example.greeno2.domain.SustainabilityQuiz
+import com.example.greeno2.domain.TripPlanner
+import com.example.greeno2.ui.components.OutlineButton
+import kotlin.math.roundToInt
 import com.example.greeno2.data.Trip
 import com.example.greeno2.data.UserStats
 import com.example.greeno2.domain.CarbonCalculator
@@ -91,9 +100,13 @@ fun HomeScreen(
     lastCompleted: Trip?,
     onDismissLast: () -> Unit,
     onMessage: (String) -> Unit,
+    onTakeQuiz: () -> Unit,
 ) {
     val context = LocalContext.current
-    var selectedMode by rememberSaveable { mutableStateOf(TransportMode.WALK) }
+    val preferred = ui.user?.preferredMode
+    // Start on the mode recommended by the onboarding quiz, when there is one.
+    var selectedMode by rememberSaveable(preferred) { mutableStateOf(preferred ?: TransportMode.WALK) }
+    var showLocationInfo by remember { mutableStateOf(false) }
     val userId = ui.user?.id ?: -1L
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -102,7 +115,7 @@ fun HomeScreen(
         if (results[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
             startIfLocationOn(context, selectedMode, userId, onMessage)
         } else {
-            onMessage("Precise location permission is needed to measure your trip distance")
+            onMessage("Location access was declined. Allow precise location in Settings to track trips.")
         }
     }
 
@@ -110,13 +123,36 @@ fun HomeScreen(
         if (hasFineLocation(context)) {
             startIfLocationOn(context, selectedMode, userId, onMessage)
         } else {
-            val perms = buildList {
-                add(Manifest.permission.ACCESS_FINE_LOCATION)
-                add(Manifest.permission.ACCESS_COARSE_LOCATION)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            permissionLauncher.launch(perms.toTypedArray())
+            // Explain why before the system prompt ("Location Access" step in the design).
+            showLocationInfo = true
         }
+    }
+
+    if (showLocationInfo) {
+        AlertDialog(
+            onDismissRequest = { showLocationInfo = false },
+            icon = { Text("📍", style = MaterialTheme.typography.headlineMedium) },
+            title = { Text("Allow location access") },
+            text = {
+                Text(
+                    "GreenO2 uses your precise location only while a trip is recording, to measure the " +
+                        "distance and calculate your CO₂ savings. Your route stays on this phone.\n\n" +
+                        "We'll also ask to show a notification so you can stop the trip from your lock screen."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showLocationInfo = false
+                    val perms = buildList {
+                        add(Manifest.permission.ACCESS_FINE_LOCATION)
+                        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    permissionLauncher.launch(perms.toTypedArray())
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { showLocationInfo = false }) { Text("Not now") } },
+        )
     }
 
     Column(
@@ -127,6 +163,10 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         HeroCard(ui.user?.name.orEmpty(), ui.stats)
+
+        if (ui.user?.quizState == QuizState.SKIPPED && live == null) {
+            QuizPromptCard(onTakeQuiz)
+        }
 
         when {
             saving -> SectionCard {
@@ -144,7 +184,98 @@ fun HomeScreen(
             TripSummaryCard(lastCompleted, onDismissLast)
         }
 
-        if (live == null) TipCard()
+        if (live == null && !saving) {
+            TripPlannerCard(onPick = { selectedMode = it })
+            TipCard()
+        }
+    }
+}
+
+@Composable
+private fun QuizPromptCard(onTakeQuiz: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("📝", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Personalise GreenO2", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Take the 5-question quiz to get your sustainability score and " +
+                        "+${SustainabilityQuiz.WELCOME_BONUS} Green Points.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        OutlineButton("Take the quiz", onTakeQuiz)
+    }
+}
+
+/**
+ * Trip planner from the design: enter a distance, compare CO₂ for every mode in real time,
+ * and get the greenest realistic alternative.
+ */
+@Composable
+private fun TripPlannerCard(onPick: (TransportMode) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    var km by rememberSaveable { mutableFloatStateOf(5f) }
+    val options = TripPlanner.compare(km.toDouble())
+    val suggestion = TripPlanner.suggest(km.toDouble())
+    val carKg = options.first { it.mode == TransportMode.CAR }.emittedKg
+    val maxKg = options.maxOf { it.emittedKg }.coerceAtLeast(0.0001)
+
+    SectionCard {
+        SectionHeader("Plan a trip", trailing = String.format(Locale.US, "%.1f km", km))
+        Text(
+            "Compare the footprint of each way to get there before you go.",
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+        )
+        Slider(
+            value = km,
+            onValueChange = { km = (it * 2).roundToInt() / 2f },
+            valueRange = 0.5f..60f,
+        )
+        options.forEach { o ->
+            val isSuggested = o.mode == suggestion
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSuggested) scheme.primaryContainer else Color.Transparent)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(o.mode.emoji, modifier = Modifier.width(30.dp))
+                Text(
+                    o.mode.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSuggested) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.width(84.dp),
+                )
+                Box(Modifier.weight(1f).padding(end = 10.dp)) {
+                    ProgressTrack((o.emittedKg / maxKg).toFloat(), height = 6.dp, fill = androidx.compose.ui.graphics.SolidColor(
+                        if (o.mode == TransportMode.CAR) scheme.error else scheme.primary
+                    ))
+                }
+                Text(fmtKg(o.emittedKg), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        val saved = carKg - options.first { it.mode == suggestion }.emittedKg
+        Surface(shape = RoundedCornerShape(12.dp), color = scheme.primaryContainer.copy(alpha = 0.6f), modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "💡 Greener alternative: ${suggestion.emoji} ${suggestion.label.lowercase()} saves about ${fmtKg(saved)} " +
+                    "of CO₂ versus driving and earns ~${CarbonCalculator.calculate(suggestion, km * 1000.0).credits} Green Points.",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onPrimaryContainer,
+                modifier = Modifier.padding(12.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        OutlineButton("Use ${suggestion.label.lowercase()} for my next trip", { onPick(suggestion) })
     }
 }
 
@@ -193,7 +324,7 @@ private fun HeroCard(name: String, stats: UserStats) {
         )
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlassStat(stats.creditBalance.toString(), "credits")
+            GlassStat(stats.creditBalance.toString(), "Green Points")
             GlassStat(fmtKm(stats.distanceKm), "travelled")
             GlassStat(stats.tripCount.toString(), "trips")
         }
@@ -226,10 +357,10 @@ private fun ModePicker(selected: TransportMode, onSelect: (TransportMode) -> Uni
         ) {
             Text(
                 if (selected == TransportMode.CAR) {
-                    "🚗 Car trips show their footprint (≈${fmtKg(perKm.emittedKg)} CO₂/km) but don't earn credits."
+                    "🚗 Car trips show their footprint (≈${fmtKg(perKm.emittedKg)} CO₂/km) but don't earn Green Points."
                 } else {
                     "${selected.emoji} Saves ≈${fmtKg(perKm.savedKg)} CO₂ per km vs driving · " +
-                        "${String.format(Locale.US, "%.1f", perKm.savedKg * CarbonCalculator.CREDITS_PER_KG_SAVED)} credits/km"
+                        "${String.format(Locale.US, "%.1f", perKm.savedKg * CarbonCalculator.CREDITS_PER_KG_SAVED)} points/km"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -392,7 +523,7 @@ private fun TripSummaryCard(trip: Trip, onDismiss: () -> Unit) {
             } else {
                 Pill("🌿 ${fmtKg(trip.savedKg)} saved", scheme.primaryContainer, scheme.onPrimaryContainer)
             }
-            Pill("⭐ +${trip.credits} credits", scheme.tertiaryContainer, scheme.onTertiaryContainer)
+            Pill("⭐ +${trip.credits} points", scheme.tertiaryContainer, scheme.onTertiaryContainer)
         }
         if (trip.note != null) {
             Spacer(Modifier.height(10.dp))

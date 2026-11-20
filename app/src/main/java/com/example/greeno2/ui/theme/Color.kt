@@ -3,37 +3,39 @@ package com.example.greeno2.ui.theme
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-val Forest = Color(0xFF0B5A33)
-val Leaf = Color(0xFF1E8E4E)
-val Lime = Color(0xFF34C26A)
-val Mint = Color(0xFFB9F6CA)
-val MintContainer = Color(0xFFDDF4E3)
-val Sky = Color(0xFF0277BD)
-val SkyContainer = Color(0xFFD9EEFA)
-val Sun = Color(0xFFF59E0B)
-val SunContainer = Color(0xFFFFF0CC)
-val Ink = Color(0xFF14201A)
-val Paper = Color(0xFFF4F8F3)
-val Warning = Color(0xFFC62828)
-val WarningContainer = Color(0xFFFDE3E0)
+// Palette from the GreenMiles UX case study: deep olive on clean white, thin outlines.
+val Olive = Color(0xFF2F4423)
+val OliveDark = Color(0xFF1F2E17)
+val OliveSoft = Color(0xFF4F6B3D)
+val Sage = Color(0xFF7E9A68)
+val SageContainer = Color(0xFFE9EFE3)
+val Lime = Color(0xFFD9F27A)
+val Mint = Color(0xFFCFE8B8)
+val Gold = Color(0xFFB7862C)
+val GoldContainer = Color(0xFFF7EDD6)
+val Ink = Color(0xFF1E2619)
+val InkSoft = Color(0xFF5A6553)
+val Outline = Color(0xFFD9DED3)
+val Paper = Color(0xFFFFFFFF)
+val PaperTint = Color(0xFFF6F8F3)
+val Warning = Color(0xFFB3261E)
+val WarningContainer = Color(0xFFFBE4E1)
 
-val NightBg = Color(0xFF0C130F)
-val NightSurface = Color(0xFF151F19)
-val NightMint = Color(0xFF7DDC9C)
+val NightBg = Color(0xFF10150D)
+val NightSurface = Color(0xFF182014)
+val NightOutline = Color(0xFF2E3A27)
+val NightSage = Color(0xFFA9C98F)
 
-val DeepNight = Color(0xFF07170F)
-
-/** Brand gradients. They are deliberately the same in light and dark mode. */
+/** Brand fills. Kept deliberately flat and calm to match the case study's look. */
 object Brand {
-    val hero = Brush.linearGradient(listOf(Forest, Leaf, Lime))
-    val live = Brush.linearGradient(listOf(DeepNight, Color(0xFF0E3B24), Forest))
-    val gold = Brush.linearGradient(listOf(Color(0xFFFFB300), Color(0xFFF57C00)))
-    val sky = Brush.linearGradient(listOf(Color(0xFF01579B), Color(0xFF0288D1), Color(0xFF26C6DA)))
-    val button = Brush.horizontalGradient(listOf(Leaf, Lime))
-    val danger = Brush.horizontalGradient(listOf(Color(0xFFB71C1C), Color(0xFFE53935)))
+    val hero = Brush.linearGradient(listOf(Olive, OliveSoft))
+    val live = Brush.linearGradient(listOf(OliveDark, Olive))
+    val gold = Brush.linearGradient(listOf(Color(0xFFC9963A), Gold))
+    val button = Brush.linearGradient(listOf(Olive, Olive))
+    val danger = Brush.linearGradient(listOf(Color(0xFF9E2A22), Color(0xFFB3261E)))
 
     val avatarColors = listOf(
-        Color(0xFF1E8E4E), Color(0xFF0288D1), Color(0xFF8E24AA),
-        Color(0xFFF57C00), Color(0xFFD81B60), Color(0xFF00897B),
+        Olive, Color(0xFF5B7F47), Color(0xFF8A6D3B),
+        Color(0xFF3E6B6B), Color(0xFF7A4E5B), Color(0xFF4B5A8A),
     )
 }

@@ -15,8 +15,8 @@ Built with **Kotlin** and **Jetpack Compose**. (Originally scoped as "Green Mile
 | Real-time distance with GPS noise filtering | `domain/DistanceAccumulator.kt` |
 | Distance × mode → carbon saved + credits earned | `domain/CarbonCalculator.kt` |
 | Anti-cheat: speed checks per mode, minimum trip, daily credit cap | `domain/TripValidator.kt`, `GreenRepository.saveTrip` |
-| Credit redemption for rewards | `ui/screens/MartScreen.kt` |
-| Community ranking | `ui/screens/LeaderboardScreen.kt` |
+| Green Points redemption for rewards | `ui/screens/MartScreen.kt` (`RewardsScreen`) |
+| Community challenges + ranking | `ui/screens/LeaderboardScreen.kt` (`CommunityScreen`) |
 | Trip history with weekly CO₂ chart | `ui/screens/HistoryScreen.kt` |
 | Eco levels (Seedling → Forest guardian), achievements, daily eco tips | `domain/Gamification.kt` |
 
@@ -24,7 +24,7 @@ Built with **Kotlin** and **Jetpack Compose**. (Originally scoped as "Green Mile
 
 - Every trip is compared with driving the same distance alone in an average car (**0.17 kg CO₂e/km**).
 - Saved = distance × (car factor − mode factor). Car trips are recorded but save nothing.
-- **1 credit = 100 g CO₂ avoided.** At most 300 credits per day.
+- **1 Green Point = 100 g CO₂ avoided.** At most 300 trip points per day; quiz and challenge bonuses come on top.
 - Factors are rounded estimates based on UK government (DESNZ/DEFRA) greenhouse-gas conversion factors. They all live in `TransportMode` so they can be reviewed and adjusted in one place.
 
 | Mode | kg CO₂e / km |
@@ -41,9 +41,31 @@ Built with **Kotlin** and **Jetpack Compose**. (Originally scoped as "Green Mile
 - A sustained GPS segment faster than twice the mode's limit is also flagged.
 - GPS fixes worse than 35 m accuracy are ignored, and jitter while standing still is not counted as distance.
 
+## Alignment with the GreenMiles UX case study
+
+The app follows the GreenMiles UX case study (amadezign.com/green-miles-app), including the changes its usability tests called for:
+
+| Case study finding / IA item | In the app |
+| --- | --- |
+| Users wanted to **skip the onboarding quiz** | Welcome page with a "Take Quiz" modal: **Let's start!** or **Skip quiz**. Skippers get a reminder card on Track and can take it later from Profile. (`OnboardingScreen.kt`) |
+| Users wanted **quiz progress indicators** | One question per page with **"Question n/5"** and a progress bar |
+| 5-question personalisation quiz | Gives a 0–100 sustainability score, a default travel mode and a +50 Green Points welcome bonus (`domain/Quiz.kt`) |
+| Users were **confused how rewards work** | **How Rewards Work** guide at the top of Rewards until dismissed, and always available from "ⓘ How it works" |
+| Add an **Invite & Earn** section | "Help the Planet, Help Your Wallet – Invite & Earn!" card in Profile (Android share sheet with an invite code) |
+| Achievements headboard with **Certificate** | Congratulations banner + shareable certificate in Profile |
+| Green Points wallet & redeemable rewards | Credits are now **Green Points**; rewards are grouped into Transport / Eco-stays / Food & drink / Activities tabs |
+| Community & Challenges, social sharing | **Community** tab: weekly challenges you join, track and claim points for, and share |
+| User impact leaderboard | Leaderboard with podium inside Community |
+| Trip planner with real-time CO₂ and alternative green travel | **Plan a trip** card on Track: distance slider, CO₂ per mode, greener suggestion |
+| Location access step | A short explanation shown before the system location prompt |
+| Support & feedback (Help center, FAQs) | **Help & FAQ** in Profile |
+| Visual style | Deep olive `#2F4423` on white, outlined cards, serif headings, solid olive splash |
+
+Not built (they need a backend or partners): social login (Facebook/Google/Apple), the community forum, verified referral bonuses, and real partner vouchers.
+
 ## Design
 
-- **App icon:** a white map pin (tracking) holding a green leaf (sustainability), with O₂ bubbles rising from it, on a deep-green gradient. It's an adaptive icon with a monochrome layer for Android 13+ themed icons (`res/drawable/ic_launcher_*.xml`). A 512 px version for the Play Store is at `app/src/main/ic_launcher-playstore.png`.
+- **App icon:** a white map pin (tracking) holding a green leaf (sustainability), with O₂ bubbles rising from it, on a deep olive gradient. It's an adaptive icon with a monochrome layer for Android 13+ themed icons (`res/drawable/ic_launcher_*.xml`). A 512 px version for the Play Store is at `app/src/main/ic_launcher-playstore.png`.
 - **Look:** brand gradients (`ui/theme/Color.kt` → `Brand`), glass-style stat chips on gradient cards, a pulsing LIVE card while recording, a podium for the top 3, and a gold balance card in the Mart. Shared building blocks live in `ui/components/Components.kt`.
 
 ## Architecture

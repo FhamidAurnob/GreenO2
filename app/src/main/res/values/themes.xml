@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.GreenO2" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.GreenO2" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Shown while the app starts, matching the olive splash screen -->
+        <item name="android:windowBackground">@color/brand_olive</item>
+    </style>
 </resources>

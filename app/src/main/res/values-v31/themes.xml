@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.GreenO2" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/brand_olive</item>
+        <!-- Android 12+ system splash: olive background with the GreenO2 pin -->
+        <item name="android:windowSplashScreenBackground">@color/brand_olive</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    </style>
+</resources>

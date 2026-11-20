@@ -38,7 +38,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import com.example.greeno2.data.GreenRepository
+import com.example.greeno2.data.QuizState
 import com.example.greeno2.data.TransportMode
+import com.example.greeno2.domain.SustainabilityQuiz
+import com.example.greeno2.ui.components.OutlineButton
+import com.example.greeno2.ui.components.RuledHeading
+import com.example.greeno2.ui.components.shareText
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import com.example.greeno2.domain.Achievement
 import com.example.greeno2.domain.Achievements
 import com.example.greeno2.domain.CarbonCalculator
@@ -61,7 +73,9 @@ fun ProfileScreen(
     trackingActive: Boolean,
     onRename: (String) -> Unit,
     onLogout: () -> Unit,
+    onRetakeQuiz: () -> Unit,
 ) {
+    val context = LocalContext.current
     val user = ui.user ?: return
     val stats = ui.stats
     val scheme = MaterialTheme.colorScheme
@@ -98,7 +112,7 @@ fun ProfileScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GlassStat(fmtKg(stats.savedKg), "CO₂ saved")
                 GlassStat(stats.tripCount.toString(), "trips")
-                GlassStat(stats.creditsEarned.toString(), "credits earned")
+                GlassStat(stats.creditBalance.toString(), "Green Points")
             }
             Spacer(Modifier.height(10.dp))
             Text(
@@ -108,8 +122,44 @@ fun ProfileScreen(
             )
         }
 
+        val unlocked = achievements.count { it.unlocked }
+        // "Achievements" headboard from the case study: congratulations + certificate + invite.
+        RuledHeading("Achievements")
         SectionCard {
-            SectionHeader("Achievements", trailing = "${achievements.count { it.unlocked }}/${achievements.size}")
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Congratulations!", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (unlocked > 0) "You earned $unlocked achievement${if (unlocked == 1) "" else "s"} since ${fmtDate(user.createdAt)}"
+                    else "Record your first green trip to earn your first achievement",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.primary,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        CertificateCard(
+            name = user.name,
+            level = level,
+            savedKg = stats.savedKg,
+            onShare = {
+                shareText(
+                    context,
+                    "🌿 I've reached ${level.emoji} ${level.title} on GreenO2 and saved ${fmtKg(stats.savedKg)} of CO₂ " +
+                        "by choosing greener ways to travel. Every trip counts!",
+                )
+            },
+        )
+        InviteCard(onInvite = {
+            shareText(
+                context,
+                "Help the planet, help your wallet! 🌍 I'm using GreenO2 to track my low-carbon trips and earn " +
+                    "Green Points for eco rewards. Join me with my invite code ${inviteCode(user.id)}.",
+                "Invite friends",
+            )
+        })
+
+        SectionCard {
+            SectionHeader("Badges", trailing = "$unlocked/${achievements.size}")
             Spacer(Modifier.height(12.dp))
             achievements.chunked(4).forEach { row ->
                 Row(
@@ -131,9 +181,10 @@ fun ProfileScreen(
             KeyValueRow("CO₂ saved vs driving", fmtKg(stats.savedKg))
             KeyValueRow("CO₂ emitted", fmtKg(stats.emittedKg))
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = scheme.surfaceVariant)
-            KeyValueRow("Credits earned", stats.creditsEarned.toString())
-            KeyValueRow("Credits spent", stats.creditsSpent.toString())
-            KeyValueRow("Credit balance", stats.creditBalance.toString())
+            KeyValueRow("Green Points earned", stats.creditsEarned.toString())
+            if (stats.bonusPoints > 0) KeyValueRow("  of which bonuses", stats.bonusPoints.toString())
+            KeyValueRow("Green Points spent", stats.creditsSpent.toString())
+            KeyValueRow("Balance", stats.creditBalance.toString())
             if (stats.savedKg > 0) {
                 val treeDays = stats.savedKg / CarbonCalculator.TREE_KG_PER_YEAR * 365
                 Spacer(Modifier.height(10.dp))
@@ -146,6 +197,30 @@ fun ProfileScreen(
                     )
                 }
             }
+        }
+
+        SectionCard {
+            SectionHeader("Sustainability profile")
+            Spacer(Modifier.height(6.dp))
+            if (user.quizState == QuizState.COMPLETED) {
+                KeyValueRow("Quiz score", "${user.ecoScore} / 100")
+                user.preferredMode?.let { KeyValueRow("Default travel mode", "${it.emoji} ${it.label}") }
+            } else {
+                Text(
+                    "You haven't taken the sustainability quiz yet. It personalises your default travel " +
+                        "mode and gives you +${SustainabilityQuiz.WELCOME_BONUS} Green Points.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlineButton(if (user.quizState == QuizState.COMPLETED) "Retake the quiz" else "Take the quiz", onRetakeQuiz)
+        }
+
+        SectionCard {
+            SectionHeader("Help & FAQ")
+            Spacer(Modifier.height(4.dp))
+            Faq.entries.forEach { FaqItem(it.first, it.second) }
         }
 
         SectionCard {
@@ -221,3 +296,102 @@ private fun AchievementBadge(a: Achievement, modifier: Modifier = Modifier) {
         )
     }
 }
+
+
+@Composable
+private fun CertificateCard(name: String, level: EcoLevel, savedKg: Double, onShare: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    SectionCard {
+        RuledHeading("Certificate")
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("This certificate is proudly presented to", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            Text(name, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "for reaching ${level.emoji} ${level.title} and saving ${fmtKg(savedKg)} of CO₂",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text("Scope date", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            Text(
+                LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.primary,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Signed by", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            Text("The GreenO2 Team", fontFamily = FontFamily.Cursive, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onShare) { Text("Share my certificate") }
+        }
+    }
+}
+
+@Composable
+private fun InviteCard(onInvite: () -> Unit) {
+    SectionCard {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Help the Planet, Help Your Wallet", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+            Text("Invite & Earn!", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Share GreenO2 with friends. The more people travel green, the bigger our community impact.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(onClick = onInvite) { Text("✉️  Invite friends") }
+        }
+    }
+}
+
+@Composable
+private fun FaqItem(question: String, answer: String) {
+    var open by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable { open = !open }
+            .padding(vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(question, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(if (open) "−" else "+", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        AnimatedVisibility(open) {
+            Text(
+                answer,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+}
+
+private object Faq {
+    val entries = listOf(
+        "How do I earn Green Points?" to
+            "Track trips by walking, cycling, e-bike, e-scooter, bus or train. You earn 1 point for every 100 g of CO₂ " +
+            "you avoid compared with driving. The welcome quiz and weekly challenges give bonus points.",
+        "Why did my trip earn 0 points?" to
+            "Trips under 100 m or 1 minute don't earn points, and trips that are too fast for the mode you chose " +
+            "(for example \"walking\" at 40 km/h) are flagged. Trip points are also capped at " +
+            "${GreenRepository.DAILY_CREDIT_CAP} a day.",
+        "How is my CO₂ saving calculated?" to
+            "We compare your trip with driving the same distance in an average car (0.17 kg CO₂ per km), using " +
+            "estimates based on UK government conversion factors. See the table below.",
+        "Is my location shared?" to
+            "No. GPS is only used while a trip is recording, and your route and history are stored on this phone.",
+        "How do I use a reward?" to
+            "Redeem it in Rewards and show the voucher code to the partner. Your codes are listed under Your vouchers.",
+    )
+}
+
+/** Short, stable invite code derived from the user id. */
+private fun inviteCode(userId: Long): String = "GO2-" + (userId * 7919 + 1000).toString(36).uppercase()
